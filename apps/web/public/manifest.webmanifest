@@ -1,0 +1,12 @@
+{
+  "name": "ScanOrder AI",
+  "short_name": "ScanOrder",
+  "description": "AI-powered QR ordering for restaurants in Pakistan.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050914",
+  "theme_color": "#0f766e",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
