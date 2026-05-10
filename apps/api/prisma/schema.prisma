@@ -1,0 +1,304 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  WAITER
+  KITCHEN
+  CASHIER
+  MANAGER
+  OWNER
+  SAAS_ADMIN
+}
+
+enum OrderType {
+  DINE_IN
+  TAKEAWAY
+  DELIVERY
+}
+
+enum OrderStatus {
+  PLACED
+  ACCEPTED
+  PREPARING
+  READY
+  SERVED
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentProvider {
+  CASH
+  STRIPE
+  JAZZCASH
+  EASYPAISA
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model Tenant {
+  id             String       @id @default(cuid())
+  name           String
+  slug           String       @unique
+  brandColor     String       @default("#14b8a6")
+  plan           String       @default("starter")
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  branches       Branch[]
+  memberships    Membership[]
+  categories     MenuCategory[]
+  menuItems      MenuItem[]
+  orders         Order[]
+  auditLogs      AuditLog[]
+  eventOutbox    EventOutbox[]
+}
+
+model Branch {
+  id          String    @id @default(cuid())
+  tenantId    String
+  name        String
+  address     String
+  city        String
+  timezone    String    @default("Asia/Karachi")
+  currency    String    @default("PKR")
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tables      DiningTable[]
+  orders      Order[]
+  inventory   InventoryItem[]
+  memberships Membership[]
+
+  @@index([tenantId])
+}
+
+model User {
+  id             String       @id @default(cuid())
+  externalAuthId String       @unique
+  email          String       @unique
+  name           String
+  memberships    Membership[]
+}
+
+model Membership {
+  id        String  @id @default(cuid())
+  tenantId  String
+  branchId  String?
+  userId    String
+  role      Role
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch    Branch? @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId, role, branchId])
+  @@index([tenantId, branchId])
+}
+
+model DiningTable {
+  id        String   @id @default(cuid())
+  tenantId  String
+  branchId  String
+  code      String
+  label     String
+  capacity  Int      @default(4)
+  isActive  Boolean  @default(true)
+  branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  orders    Order[]
+
+  @@unique([branchId, code])
+  @@index([tenantId])
+}
+
+model MenuCategory {
+  id        String     @id @default(cuid())
+  tenantId  String
+  name      String
+  nameUrdu  String?
+  sortOrder Int        @default(0)
+  isActive  Boolean    @default(true)
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items     MenuItem[]
+
+  @@index([tenantId, sortOrder])
+}
+
+model MenuItem {
+  id                 String        @id @default(cuid())
+  tenantId           String
+  categoryId         String
+  name               String
+  nameUrdu           String?
+  description        String
+  price              Int
+  imageUrl           String?
+  isAvailable        Boolean       @default(true)
+  isPopular          Boolean       @default(false)
+  preparationMinutes Int           @default(15)
+  tenant             Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category           MenuCategory  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  modifierGroups     ModifierGroup[]
+  orderItems         OrderItem[]
+
+  @@index([tenantId, categoryId])
+}
+
+model ModifierGroup {
+  id         String           @id @default(cuid())
+  menuItemId String
+  name       String
+  minSelect  Int              @default(0)
+  maxSelect  Int              @default(1)
+  menuItem   MenuItem         @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  options    ModifierOption[]
+}
+
+model ModifierOption {
+  id              String              @id @default(cuid())
+  groupId         String
+  name            String
+  priceDelta      Int                 @default(0)
+  group           ModifierGroup       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  selectedOptions OrderItemModifier[]
+}
+
+model InventoryItem {
+  id              String   @id @default(cuid())
+  tenantId        String
+  branchId        String
+  name            String
+  unit            String
+  quantityOnHand  Decimal  @default(0)
+  reorderPoint    Decimal  @default(0)
+  branch          Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, branchId])
+}
+
+model Order {
+  id            String       @id @default(cuid())
+  tenantId      String
+  branchId      String
+  tableId       String?
+  code          String       @unique
+  type          OrderType
+  status        OrderStatus  @default(PLACED)
+  customerName  String?
+  customerPhone String?
+  subtotal      Int
+  discount      Int          @default(0)
+  tax           Int          @default(0)
+  total         Int
+  notes         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch        Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  table         DiningTable? @relation(fields: [tableId], references: [id])
+  items         OrderItem[]
+  payment       Payment?
+  feedback      Feedback?
+
+  @@index([tenantId, branchId, status, createdAt])
+}
+
+model OrderItem {
+  id         String              @id @default(cuid())
+  orderId    String
+  menuItemId String
+  name       String
+  unitPrice  Int
+  quantity   Int
+  notes      String?
+  order      Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem   MenuItem            @relation(fields: [menuItemId], references: [id])
+  modifiers  OrderItemModifier[]
+}
+
+model OrderItemModifier {
+  id         String         @id @default(cuid())
+  orderItemId String
+  optionId   String
+  name       String
+  priceDelta Int
+  quantity   Int           @default(1)
+  orderItem  OrderItem     @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  option     ModifierOption @relation(fields: [optionId], references: [id])
+}
+
+model Payment {
+  id                String          @id @default(cuid())
+  orderId           String          @unique
+  provider          PaymentProvider
+  status            PaymentStatus   @default(PENDING)
+  amount            Int
+  currency          String          @default("PKR")
+  providerReference String?
+  order             Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model Coupon {
+  id        String   @id @default(cuid())
+  tenantId  String
+  code      String
+  percent   Int?
+  amount    Int?
+  startsAt  DateTime
+  endsAt    DateTime
+  isActive  Boolean  @default(true)
+
+  @@unique([tenantId, code])
+}
+
+model LoyaltyAccount {
+  id            String @id @default(cuid())
+  tenantId      String
+  customerPhone String
+  points        Int    @default(0)
+
+  @@unique([tenantId, customerPhone])
+}
+
+model Feedback {
+  id        String   @id @default(cuid())
+  orderId   String   @unique
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  actorId   String?
+  action    String
+  entity    String
+  entityId  String
+  metadata  Json
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+}
+
+model EventOutbox {
+  id          String    @id @default(cuid())
+  tenantId    String
+  type        String
+  payload     Json
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, processedAt, createdAt])
+}
